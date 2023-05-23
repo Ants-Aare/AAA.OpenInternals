@@ -1,0 +1,13 @@
+/Users/john/Documents/Github/UnityOpenStore/Assets/AAA.UnityOpenInternals/CodeGeneration~/Plugins/netstandard2.0/AAA.UnityOpenInternals.deps.json
+/Users/john/Documents/Github/UnityOpenStore/Assets/AAA.UnityOpenInternals/CodeGeneration~/Plugins/netstandard2.0/AAA.UnityOpenInternals.dll
+/Users/john/Documents/Github/UnityOpenStore/Assets/AAA.UnityOpenInternals/CodeGeneration~/Plugins/netstandard2.0/AAA.UnityOpenInternals.pdb
+/Users/john/Documents/Github/UnityOpenStore/Assets/AAA.UnityOpenInternals/CodeGeneration~/AAA.UnityOpenInternals/obj/Release/netstandard2.0/AAA.UnityOpenInternals.csproj.AssemblyReference.cache
+/Users/john/Documents/Github/UnityOpenStore/Assets/AAA.UnityOpenInternals/CodeGeneration~/AAA.UnityOpenInternals/obj/Release/netstandard2.0/AAA.UnityOpenInternals.GeneratedMSBuildEditorConfig.editorconfig
+/Users/john/Documents/Github/UnityOpenStore/Assets/AAA.UnityOpenInternals/CodeGeneration~/AAA.UnityOpenInternals/obj/Release/netstandard2.0/AAA.UnityOpenInternals.AssemblyInfoInputs.cache
+/Users/john/Documents/Github/UnityOpenStore/Assets/AAA.UnityOpenInternals/CodeGeneration~/AAA.UnityOpenInternals/obj/Release/netstandard2.0/AAA.UnityOpenInternals.AssemblyInfo.cs
+/Users/john/Documents/Github/UnityOpenStore/Assets/AAA.UnityOpenInternals/CodeGeneration~/AAA.UnityOpenInternals/obj/Release/netstandard2.0/AAA.UnityOpenInternals.csproj.CoreCompileInputs.cache
+/Users/john/Documents/Github/UnityOpenStore/Assets/AAA.UnityOpenInternals/CodeGeneration~/AAA.UnityOpenInternals/obj/Release/netstandard2.0/AAA.UnityOpenInternals.dll
+/Users/john/Documents/Github/UnityOpenStore/Assets/AAA.UnityOpenInternals/CodeGeneration~/AAA.UnityOpenInternals/obj/Release/netstandard2.0/AAA.UnityOpenInternals.pdb
+/Users/john/Documents/Github/UnityOpenStore/Assets/AAA.UnityOpenInternals/Plugins/netstandard2.0/AAA.UnityOpenInternals.deps.json
+/Users/john/Documents/Github/UnityOpenStore/Assets/AAA.UnityOpenInternals/Plugins/netstandard2.0/AAA.UnityOpenInternals.dll
+/Users/john/Documents/Github/UnityOpenStore/Assets/AAA.UnityOpenInternals/Plugins/netstandard2.0/AAA.UnityOpenInternals.pdb

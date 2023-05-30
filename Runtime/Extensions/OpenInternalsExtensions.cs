@@ -1,4 +1,6 @@
 using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using JetBrains.Annotations;
@@ -15,8 +17,11 @@ namespace AAA.UnityOpenInternals.Runtime.Extensions
         public static Type GetTargetType(Assembly assembly, string targetTypeName)
             => assembly.GetType(targetTypeName);
 
-        public static MethodInfo GetTargetMethod([NotNull] this MethodInfo[] methodInfos, string methodName, string returnType,
-            string[] parameterTypes)
+        public static MethodInfo GetTargetMethod(
+            [NotNull] this MethodInfo[] methodInfos,
+            string methodName,
+            string returnType,
+            Type[] parameterTypes)
         {
             foreach (var methodInfo in methodInfos)
             {
@@ -36,11 +41,11 @@ namespace AAA.UnityOpenInternals.Runtime.Extensions
             throw new NullReferenceException($"Target Method {methodName} is null.");
         }
 
-        public static bool AreParametersEqual(this ParameterInfo[] parameters, string[] parameterTypes)
+        public static bool AreParametersEqual(this ParameterInfo[] parameters, Type[] parameterTypes)
         {
             for (var i = 0; i < parameters.Length; i++)
             {
-                if (parameters[i].ParameterType.FullName != parameterTypes[i])
+                if (parameters[i].ParameterType != parameterTypes[i])
                     return false;
             }
             return true;

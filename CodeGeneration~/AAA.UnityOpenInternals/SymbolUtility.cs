@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -40,14 +41,54 @@ namespace AAA.UnityOpenInternals
                     foreach (var t in GetRealDependencyTypes(arrayTypeSymbol.ElementType))
                         yield return t;
                     break;
-                case INamedTypeSymbol { SpecialType: SpecialType.None, IsGenericType: true } namedTypeSymbol:
+                case INamedTypeSymbol
+                {
+                    SpecialType: SpecialType.None,
+                    IsGenericType: true,
+                } namedTypeSymbol:
                     foreach (var t in namedTypeSymbol.TypeArguments.SelectMany(x => x.GetRealDependencyTypes()))
                         yield return t;
                     break;
-                case INamedTypeSymbol { SpecialType: SpecialType.None }:
+                case INamedTypeSymbol
+                {
+                    SpecialType: SpecialType.None,
+                    DeclaredAccessibility: < Accessibility.Public,
+                }:
                     yield return typeSymbol;
                     break;
             }
+        }
+
+
+        public static bool IsPurelyPublicTypes(this ITypeSymbol typeSymbol, int maxDepth = 4, int currentDepth = 0)
+        {
+            //safeguard just in case
+            if (currentDepth >= maxDepth)
+                return false;
+            
+            if (typeSymbol.DeclaredAccessibility < Accessibility.Public)
+                return false;
+
+            switch (typeSymbol)
+            {
+                case IArrayTypeSymbol arrayTypeSymbol:
+                    if (!IsPurelyPublicTypes(arrayTypeSymbol.ElementType, maxDepth, currentDepth + 1))
+                        return false;
+                    break;
+
+                case INamedTypeSymbol namedTypeSymbol:
+                {
+                    foreach (var typeArgument in namedTypeSymbol.TypeArguments)
+                    {
+                        if (!IsPurelyPublicTypes(typeArgument, maxDepth, currentDepth + 1))
+                            return false;
+                    }
+
+                    break;
+                }
+            }
+
+            return true;
         }
 
         private static readonly Dictionary<ITypeSymbol, string> OpenInternalTypeNames = new();
@@ -58,6 +99,7 @@ namespace AAA.UnityOpenInternals
                 : OpenInternalTypeNames[typeSymbol] = overrideName ?? $"OI_{typeSymbol.Name}";
 
         private static readonly Dictionary<ITypeSymbol, string> OpenInternalParameterTypeNames = new();
+
         public static string GetOIParameterTypeName(this ITypeSymbol typeSymbol)
         {
             if (OpenInternalParameterTypeNames.TryGetValue(typeSymbol, out var name))
@@ -66,7 +108,7 @@ namespace AAA.UnityOpenInternals
             var stringBuilder = new StringBuilder(typeSymbol.ToDisplayString());
             foreach (var dependencyType in typeSymbol.GetRealDependencyTypes())
                 stringBuilder.Replace(dependencyType.ToDisplayString(), dependencyType.GetOITypeName());
-            
+
             return OpenInternalParameterTypeNames[typeSymbol] = stringBuilder.ToString();
         }
     }

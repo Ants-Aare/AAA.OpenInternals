@@ -1,75 +1,107 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using static Microsoft.CodeAnalysis.CSharp.SyntaxFactory;
+using static AAA.UnityOpenInternals.StaticUtilitySyntaxes;
 
 namespace AAA.UnityOpenInternals
 {
     public static class MethodGenerator
     {
-        private static int _index = 0;
-
-        private static InvocationExpressionSyntax GetEmptyArraySyntax(TypeSyntax typeSyntax)
-            => InvocationExpression(
-                MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, IdentifierName("Array"),
-                    GenericName(Identifier("Empty"))
-                        .WithTypeArgumentList(
-                            TypeArgumentList(SingletonSeparatedList(typeSyntax)))));
+        private static int _index;
 
         public static void AddMethodToSyntaxList(List<MemberDeclarationSyntax> list, IMethodSymbol methodSymbol)
         {
             var methodInfoFieldName = $"{methodSymbol.Name}MethodInfo{_index++.ToString()}";
+            var methodInfoIdentifier = IdentifierName(methodInfoFieldName);
             var returnTypeName = methodSymbol.ReturnType.GetOIParameterTypeName();
+            var returnTypeIdentifier = IdentifierName(returnTypeName);
 
-            var assignmentParameterSyntaxList = GetParameterSyntaxes<ExpressionSyntax>(methodSymbol,
-                symbol => InvocationExpression(MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression,
-                    IdentifierName(symbol.Name), IdentifierName("GetType"))));
+            var fieldDeclaration = GetMethodInfoField(methodInfoFieldName);
 
+            var assignmentStatement = GetAssignmentStatementSyntax(methodSymbol, methodInfoIdentifier);
+            var invocationExpression = GetMethodInvocationSyntax(methodSymbol, methodInfoIdentifier);
 
-            var returnParameterSyntaxList = GetParameterSyntaxes<ExpressionSyntax>(methodSymbol,
-                symbol =>
-                    symbol.Type switch
+            var returnStatement = GetReturnStatementSyntax(methodSymbol, invocationExpression, returnTypeIdentifier);
+            var body = Block(assignmentStatement, returnStatement);
+
+            var methodDeclaration = GetMethodDeclarationSyntax(methodSymbol, returnTypeIdentifier, body);
+
+            list.Add(fieldDeclaration);
+            list.Add(methodDeclaration);
+        }
+
+        private static FieldDeclarationSyntax GetMethodInfoField(string methodInfoFieldName)
+        {
+            return FieldDeclaration(VariableDeclaration(IdentifierName("MethodInfo"))
+                    .WithVariables(SingletonSeparatedList(VariableDeclarator(Identifier(methodInfoFieldName)))))
+                .WithModifiers(TokenList(Token(SyntaxKind.PrivateKeyword)));
+        }
+
+        private static MethodDeclarationSyntax GetMethodDeclarationSyntax(IMethodSymbol methodSymbol,
+            IdentifierNameSyntax returnTypeIdentifier, BlockSyntax body)
+        {
+            var parameterSyntaxes = GetParameterSyntaxes(methodSymbol,
+                symbol => Parameter(Identifier(symbol.Name))
+                    .WithType(IdentifierName(symbol.Type.GetOIParameterTypeName())));
+
+            return MethodDeclaration(returnTypeIdentifier, Identifier(methodSymbol.Name))
+                .WithModifiers(TokenList(Token(SyntaxKind.PublicKeyword)))
+                .WithParameterList(ParameterList(parameterSyntaxes))
+                .WithBody(body);
+        }
+
+        private static StatementSyntax GetReturnStatementSyntax(IMethodSymbol methodSymbol,
+            InvocationExpressionSyntax invocationExpression, IdentifierNameSyntax returnTypeIdentifier)
+        {
+            switch (methodSymbol.ReturnType)
+            {
+                case { SpecialType: SpecialType.System_Void }:
+                    return ExpressionStatement(invocationExpression);
+                case INamedTypeSymbol
                     {
-                        IArrayTypeSymbol arrayTypeSymbol => TypeOfExpression(IdentifierName(symbol.Type.Name)),
-                        INamedTypeSymbol { SpecialType: SpecialType.None } namedTypeSymbol
-                            => MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression,
-                                IdentifierName(symbol.Name),
-                                IdentifierName(ConstantStrings.OpenInternalObjectInstance)),
-                        INamedTypeSymbol => TypeOfExpression(IdentifierName(symbol.Type.ToDisplayString())),
-                        _ => throw new ArgumentOutOfRangeException()
-                    }
-            );
+                        SpecialType: SpecialType.System_Collections_Generic_IEnumerable_T
+                        or SpecialType.System_Collections_IEnumerable
+                    } namedTypeSymbol
+                    when !namedTypeSymbol.IsPurelyPublicTypes():
+                    return ReturnStatement(
+                        InvocationExpression(MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression,
+                                invocationExpression, IdentifierName("ToEnumerable")))
+                            .WithArgumentList(ArgumentList(SingletonSeparatedList(Argument(
+                                SimpleLambdaExpression(Parameter(Identifier("x")))
+                                    .WithExpressionBody(ObjectCreationExpression(IdentifierName(namedTypeSymbol.TypeArguments.First().GetOITypeName()))
+                                        .WithArgumentList(
+                                            ArgumentList(SingletonSeparatedList(Argument(IdentifierName("x")))))))))));
+                case IArrayTypeSymbol arrayTypeSymbol when !arrayTypeSymbol.IsPurelyPublicTypes():
+                    return ReturnStatement(InvocationExpression(MemberAccessExpression(
+                        SyntaxKind.SimpleMemberAccessExpression,
+                        InvocationExpression(MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression,
+                                invocationExpression, IdentifierName("ToEnumerable")))
+                            .WithArgumentList(ArgumentList(SingletonSeparatedList(Argument(
+                                SimpleLambdaExpression(Parameter(Identifier("x")))
+                                    .WithExpressionBody(ObjectCreationExpression(IdentifierName(arrayTypeSymbol.ElementType.GetOITypeName()))
+                                        .WithArgumentList(
+                                            ArgumentList(SingletonSeparatedList(Argument(IdentifierName("x")))))))))),
+                        IdentifierName("ToArray"))));
+                case { SpecialType: SpecialType.None, DeclaredAccessibility: < Accessibility.Public }:
+                    return ReturnStatement(ObjectCreationExpression(returnTypeIdentifier)
+                        .WithArgumentList(ArgumentList(SingletonSeparatedList(Argument(invocationExpression)))));
+                default:
+                    return ReturnStatement(CastExpression(returnTypeIdentifier, invocationExpression));
+            }
+        }
 
-            var assignmentStatement = ExpressionStatement(AssignmentExpression(SyntaxKind.CoalesceAssignmentExpression,
-                IdentifierName(methodInfoFieldName),
-                InvocationExpression(
-                        MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression,
-                            IdentifierName(ConstantStrings.OpenInternalMethods),
-                            IdentifierName("GetTargetMethod")))
-                    .WithArgumentList(ArgumentList(SeparatedList<ArgumentSyntax>(new SyntaxNodeOrToken[]
-                    {
-                        Argument(LiteralExpression(SyntaxKind.StringLiteralExpression, Literal(methodSymbol.Name))),
-                        Token(SyntaxKind.CommaToken),
-                        Argument(LiteralExpression(SyntaxKind.StringLiteralExpression,
-                            Literal(methodSymbol.ReturnType.ToDisplayString()))),
-                        Token(SyntaxKind.CommaToken),
-                        Argument(methodSymbol.Parameters.Length == 0
-                            ? GetEmptyArraySyntax(IdentifierName("Type"))
-                            : ArrayCreationExpression(ArrayType(IdentifierName("Type")).WithRankSpecifiers(
-                                    SingletonList(
-                                        ArrayRankSpecifier(
-                                            SingletonSeparatedList<ExpressionSyntax>(
-                                                OmittedArraySizeExpression())))))
-                                .WithInitializer(InitializerExpression(SyntaxKind.ArrayInitializerExpression,
-                                    assignmentParameterSyntaxList)))
-                    })))));
+        private static InvocationExpressionSyntax GetMethodInvocationSyntax(IMethodSymbol methodSymbol,
+            IdentifierNameSyntax methodInfoIdentifier)
+        {
+            var returnParameterSyntaxList = GetParameterSyntaxes(methodSymbol, GetObjectFromParameter);
 
-
-            var invocationExpression = InvocationExpression(MemberAccessExpression(
+            return InvocationExpression(MemberAccessExpression(
                     SyntaxKind.SimpleMemberAccessExpression,
-                    IdentifierName(methodInfoFieldName), IdentifierName("Invoke")))
+                    methodInfoIdentifier, IdentifierName("Invoke")))
                 .WithArgumentList(
                     ArgumentList(SeparatedList<ArgumentSyntax>(new SyntaxNodeOrToken[]
                     {
@@ -86,50 +118,81 @@ namespace AAA.UnityOpenInternals
                                 .WithInitializer(InitializerExpression(SyntaxKind.ArrayInitializerExpression,
                                     returnParameterSyntaxList)))
                     })));
+        }
 
-            var returnTypeSyntax = IdentifierName(returnTypeName);
-            StatementSyntax returnStatement = methodSymbol.ReturnType switch
+        private static ExpressionStatementSyntax GetAssignmentStatementSyntax(IMethodSymbol methodSymbol,
+            ExpressionSyntax methodInfoIdentifier)
+        {
+            var assignmentParameters = GetParameterSyntaxes(methodSymbol, GetTypeFromParameter);
+
+            return ExpressionStatement(AssignmentExpression(SyntaxKind.CoalesceAssignmentExpression,
+                methodInfoIdentifier,
+                InvocationExpression(
+                        MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression,
+                            IdentifierName(ConstantStrings.OpenInternalMethods),
+                            IdentifierName("GetTargetMethod")))
+                    .WithArgumentList(ArgumentList(SeparatedList<ArgumentSyntax>(new SyntaxNodeOrToken[]
+                    {
+                        Argument(LiteralExpression(SyntaxKind.StringLiteralExpression, Literal(methodSymbol.Name))),
+                        Token(SyntaxKind.CommaToken),
+                        Argument(LiteralExpression(SyntaxKind.StringLiteralExpression,
+                            Literal(methodSymbol.ReturnType.ToDisplayString()))),
+                        Token(SyntaxKind.CommaToken),
+                        Argument(methodSymbol.Parameters.Length == 0
+                            ? GetEmptyArraySyntax(IdentifierName("Type"))
+                            : ArrayCreationExpression(ArrayType(IdentifierName("Type"))
+                                    .WithRankSpecifiers(SingletonList(ArrayRankSpecifier(
+                                        SingletonSeparatedList<ExpressionSyntax>(OmittedArraySizeExpression())))))
+                                .WithInitializer(InitializerExpression(SyntaxKind.ArrayInitializerExpression,
+                                    assignmentParameters)))
+                    })))));
+        }
+
+        private static ExpressionSyntax GetTypeFromParameter(IParameterSymbol symbol)
+        {
+            return InvocationExpression(MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression,
+                IdentifierName(symbol.Name), IdentifierName("GetType")));
+        }
+
+        private static ExpressionSyntax GetObjectFromParameter(IParameterSymbol symbol)
+        {
+            switch (symbol.Type)
             {
-                { SpecialType: SpecialType.System_Void } => ExpressionStatement(invocationExpression),
-                { SpecialType: SpecialType.System_Collections_IEnumerable } => ReturnStatement(InvocationExpression(MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression,
-                        ParenthesizedExpression(CastExpression(IdentifierName("IEnumerable"), invocationExpression)),
-                        IdentifierName("Select"))).WithArgumentList(ArgumentList(SingletonSeparatedList(
-                        Argument(SimpleLambdaExpression(Parameter(Identifier("x"))).WithExpressionBody(
-                            ObjectCreationExpression(returnTypeSyntax).WithArgumentList(ArgumentList(
-                                SingletonSeparatedList(Argument(
-                                    IdentifierName("x"))))))))))),
-                
-                { SpecialType: SpecialType.System_Array } => ReturnStatement(InvocationExpression(
-                    MemberAccessExpression(
-                        SyntaxKind.SimpleMemberAccessExpression, InvocationExpression(MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression,
-                    ParenthesizedExpression(CastExpression(IdentifierName("IEnumerable"), invocationExpression)),
-                    IdentifierName("Select"))).WithArgumentList(ArgumentList(SingletonSeparatedList(
-                    Argument(SimpleLambdaExpression(Parameter(Identifier("x"))).WithExpressionBody(
-                        ObjectCreationExpression(returnTypeSyntax).WithArgumentList(ArgumentList(
-                            SingletonSeparatedList(Argument(
-                                IdentifierName("x")))))))))),IdentifierName("ToArray")))),
+                case IArrayTypeSymbol arrayTypeSymbol:
+                    return InvocationExpression(MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression,
+                        InvocationExpression(MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression,
+                                IdentifierName(symbol.Name), IdentifierName("Select")))
+                            .WithArgumentList(ArgumentList(SingletonSeparatedList<ArgumentSyntax>(Argument(
+                                SimpleLambdaExpression(Parameter(Identifier("x")))
+                                    .WithExpressionBody(MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression,
+                                        IdentifierName("x"),
+                                        IdentifierName("OI_ObjectInstance"))))))),
+                        IdentifierName("ToArray")));
+                case INamedTypeSymbol
+                    {
+                        SpecialType: SpecialType.System_Collections_Generic_IEnumerable_T
+                        or SpecialType.System_Collections_IEnumerable
+                    } namedTypeSymbol
+                    when !namedTypeSymbol.IsPurelyPublicTypes():
+                    return InvocationExpression(MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression,
+                            IdentifierName(symbol.Name), IdentifierName("Select")))
+                        .WithArgumentList(ArgumentList(SingletonSeparatedList<ArgumentSyntax>(
+                            Argument(SimpleLambdaExpression(Parameter(Identifier("x")))
+                                .WithExpressionBody(MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression,
+                                    IdentifierName("x"),
+                                    IdentifierName(ConstantStrings.OpenInternalObjectInstance)))))));
+                case INamedTypeSymbol { SpecialType: SpecialType.None, DeclaredAccessibility: < Accessibility.Public }:
+                    return MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, IdentifierName(symbol.Name),
+                        IdentifierName(ConstantStrings.OpenInternalObjectInstance));
+                case INamedTypeSymbol:
+                    return IdentifierName(symbol.Name);
+                default:
+                    OpenInternalsSourceGenerator.StringBuilder.Append(
+                        $"{symbol.ToDisplayString()}, {symbol.Type.ToDisplayString()}, {symbol.Type.GetType()}, {symbol.Type.SpecialType}");
+                    break;
+            }
 
-                { SpecialType: SpecialType.None } => ReturnStatement(ObjectCreationExpression(returnTypeSyntax)
-                    .WithArgumentList(ArgumentList(SingletonSeparatedList(Argument(invocationExpression))))),
-                _ => ReturnStatement(CastExpression(returnTypeSyntax, invocationExpression))
-            };
-
-            var parameterSyntaxes = GetParameterSyntaxes(methodSymbol,
-                symbol => Parameter(Identifier(symbol.Name))
-                    .WithType(IdentifierName(symbol.Type.GetOIParameterTypeName())));
-
-            var fieldDeclaration = FieldDeclaration(VariableDeclaration(IdentifierName("MethodInfo"))
-                    .WithVariables(SingletonSeparatedList(VariableDeclarator(Identifier(methodInfoFieldName)))))
-                .WithModifiers(TokenList(Token(SyntaxKind.PrivateKeyword)));
-
-            var methodDeclaration =
-                MethodDeclaration(returnTypeSyntax, Identifier(methodSymbol.Name))
-                    .WithModifiers(TokenList(Token(SyntaxKind.PublicKeyword)))
-                    .WithParameterList(ParameterList(parameterSyntaxes))
-                    .WithBody(Block(assignmentStatement, returnStatement));
-
-            list.Add(fieldDeclaration);
-            list.Add(methodDeclaration);
+            return IdentifierName(symbol.Name);
         }
 
         private static SeparatedSyntaxList<T> GetParameterSyntaxes<T>(IMethodSymbol methodSymbol,

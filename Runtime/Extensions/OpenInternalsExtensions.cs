@@ -23,18 +23,18 @@ namespace AAA.UnityOpenInternals.Runtime.Extensions
             string returnType,
             Type[] parameterTypes)
         {
+            var methods = methodInfos.Where(x=> x.GetParameters().Length == parameterTypes.Length && x.Name == methodName).ToList();
+
+            if (methods.Count == 1)
+                return methods.Single();
+
             foreach (var methodInfo in methodInfos)
             {
-                var parameters = methodInfo.GetParameters();
-                if (parameters.Length != parameterTypes.Length)
+                if (methodInfo.ReturnType.Name != returnType)
                     continue;
-                if (methodInfo.Name != methodName)
+                if (!AreParametersEqual(methodInfo.GetParameters(), parameterTypes))
                     continue;
-                if(methodInfo.ReturnType.Name != returnType)
-                    continue;
-                if (!AreParametersEqual(parameters, parameterTypes))
-                    continue;
-                    
+
                 return methodInfo;
             }
 
@@ -48,7 +48,11 @@ namespace AAA.UnityOpenInternals.Runtime.Extensions
                 if (parameters[i].ParameterType != parameterTypes[i])
                     return false;
             }
+
             return true;
         }
+
+        public static IEnumerable<T> ToEnumerable<T>(this object obj, Func<object, T> factory)
+            => from object e in (IEnumerable)obj select factory.Invoke(obj);
     }
 }

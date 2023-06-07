@@ -1,14 +1,13 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
-using Microsoft.CodeAnalysis.VisualBasic;
 using static Microsoft.CodeAnalysis.CSharp.SyntaxFactory;
+using static AAA.UnityOpenInternals.DiagnosticWarnings;
+using static AAA.UnityOpenInternals.StaticUtilitySyntaxes;
 
 namespace AAA.UnityOpenInternals
 {
@@ -16,13 +15,6 @@ namespace AAA.UnityOpenInternals
     public class OpenInternalsSourceGenerator : ISourceGenerator
     {
         public static readonly StringBuilder StringBuilder = new StringBuilder();
-
-        private static readonly DiagnosticDescriptor InvalidTypeNameWarning = new DiagnosticDescriptor(id: "OPENGEN001",
-            title: "Couldn't find Type",
-            messageFormat: "Couldn't find Full Type Name based on 'OpenInternalClass' attribute with parameter '{0}'.",
-            category: "OpenInternalsGenerator",
-            DiagnosticSeverity.Warning,
-            isEnabledByDefault: true);
 
         public void Initialize(GeneratorInitializationContext context)
         {
@@ -32,40 +24,15 @@ namespace AAA.UnityOpenInternals
         public void Execute(GeneratorExecutionContext context)
         {
             StringBuilder.Clear();
-            StringBuilder.Append("public partial class UnityOpenPackageDatabase{}\n/*\n");
+            // StringBuilder.Append("public partial class UnityOpenPackageDatabase{}\n");
+            StringBuilder.Append("/*\n");
 
             try
             {
                 if (context.SyntaxReceiver is not OpenInternalsSyntaxReceiver syntaxReceiver)
                     return;
 
-                var typeSymbols = new List<ITypeSymbol>();
-                var dependencyTypes = new HashSet<ITypeSymbol>();
-
-                foreach (var valuePair in syntaxReceiver.Attributes)
-                {
-                    var typeSymbol = context.Compilation.GetTypeByMetadataName(valuePair.Key);
-                    if (typeSymbol is null)
-                    {
-                        context.ReportDiagnostic(
-                            Diagnostic.Create(InvalidTypeNameWarning, Location.None, valuePair.Key));
-                        continue;
-                    }
-                    typeSymbols.Add(typeSymbol);
-                    var dependencies = typeSymbol.GetDependenciesFromSymbol()
-                        .SelectMany(x => x.GetRealDependencyTypes());
-
-                    dependencyTypes.UnionWith(dependencies);
-
-                    // ((INamedTypeSymbol)typeSymbol).DeclaredAccessibility == Accessibility.Internal
-                    AddClassToSource(context, typeSymbol, true, valuePair.Value);
-                }
-    
-                dependencyTypes.ExceptWith(typeSymbols);
-                foreach (var dependencyType in dependencyTypes)
-                {
-                    AddClassToSource(context, dependencyType);
-                }
+                RunGenerator(context, syntaxReceiver);
             }
             catch (Exception e)
             {
@@ -76,7 +43,45 @@ namespace AAA.UnityOpenInternals
             context.AddSource("UserClass.Generated.cs", SourceText.From(StringBuilder.ToString(), Encoding.UTF8));
         }
 
-        private static void AddClassToSource(GeneratorExecutionContext context, ITypeSymbol typeSymbol,
+        private void RunGenerator(GeneratorExecutionContext context, OpenInternalsSyntaxReceiver syntaxReceiver)
+        {
+            var typeSymbols = new List<ITypeSymbol>();
+            var dependencyTypes = new HashSet<ITypeSymbol>();
+
+            foreach (var valuePair in syntaxReceiver.Attributes)
+            {
+                var typeSymbol = context.Compilation.GetTypeByMetadataName(valuePair.Key);
+                switch (typeSymbol)
+                {
+                    case null:
+                        context.ReportDiagnostic(
+                            Diagnostic.Create(InvalidTypeNameWarning, Location.None, valuePair.Key));
+                        StringBuilder.Append($"InvalidTypeNameWarning {valuePair.Key}");
+                        continue;
+                    case { DeclaredAccessibility: >= Accessibility.Public }:
+                        context.ReportDiagnostic(Diagnostic.Create(TypeNotInternalWarning, Location.None,
+                            typeSymbol.ToDisplayString(), typeSymbol.DeclaredAccessibility));
+                        StringBuilder.Append(
+                            $"Type not internal: {typeSymbol.ToDisplayString()}. Type Accessibility: {typeSymbol.DeclaredAccessibility}");
+                        continue;
+                    default:
+                        typeSymbols.Add(typeSymbol);
+                        var dependencies = typeSymbol.GetDependenciesFromSymbol()
+                            .SelectMany(x => x.GetRealDependencyTypes());
+                        dependencyTypes.UnionWith(dependencies);
+                        AddClassToSource(context, typeSymbol, true, valuePair.Value);
+                        continue;
+                }
+            }
+
+            dependencyTypes.ExceptWith(typeSymbols);
+            foreach (var dependencyType in dependencyTypes)
+            {
+                AddClassToSource(context, dependencyType);
+            }
+        }
+
+        private void AddClassToSource(GeneratorExecutionContext context, ITypeSymbol typeSymbol,
             bool generateMembers = false, string targetName = null)
         {
             var list = new List<MemberDeclarationSyntax>();
@@ -94,7 +99,7 @@ namespace AAA.UnityOpenInternals
                             break;
                         case IMethodSymbol { MethodKind: MethodKind.Constructor } constructorSymbol:
                             break;
-                        case IMethodSymbol { MethodKind: MethodKind.Ordinary } methodSymbol:
+                        case IMethodSymbol { MethodKind: MethodKind.Ordinary, IsGenericMethod: false} methodSymbol:
                             MethodGenerator.AddMethodToSyntaxList(list, methodSymbol);
                             break;
                     }
@@ -109,10 +114,20 @@ namespace AAA.UnityOpenInternals
             );
 
             var compilationUnit = CompilationUnit()
-                .WithUsings(ClassGenerator.Usings)
+                .WithUsings(Usings)
                 .WithMembers(SingletonList<MemberDeclarationSyntax>(classDeclaration))
+                .WithLeadingTrivia(TriviaList(
+                    new[]
+                    {
+                        Comment("// <auto-generated>"),
+                        Comment($"//     This code was generated by {GetType().FullName}"),
+                        Comment(
+                            "//     Changes to this file may cause incorrect behavior and will be lost if the code is regenerated."),
+                        Comment("// </auto-generated>")
+                    }))
                 .NormalizeWhitespace();
 
+            // StringBuilder.Append(compilationUnit.ToString());
             context.AddSource($"{className}.Generated.cs", compilationUnit.GetText(Encoding.UTF8));
         }
     }
